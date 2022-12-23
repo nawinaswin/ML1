@@ -1,3 +1,4 @@
+
 #include "vector"
 #include "iostream"
 #include "cstdlib" 
@@ -14,22 +15,22 @@
 class Neuron;
 typedef std::vector<Neuron> Layer;
 
-//**************************************Class Neuron*******************************************
+//************************************** Class Neuron *******************************************
 
  class Neuron{
  public:
     Neuron(unsigned numOutputs);
 
+    void feedForward(const Layer &prevLayer);
     void setOutputVal(double val){m_outputVal = val;};
     double getOutputVal(void) const {return m_outputVal;}
-    void feedForward(const Layer &prevLayer){};
     void calculateOutputGradients(double targetVal);
     void calculateHiddenGradients(const Layer &nextLayer);
     void updateInputWeights(Layer &prevLayer);
-private:
+ private:
     double m_outputVal;
-    double eta;
-    double alpha;
+    static double eta;
+    static double alpha;
     static double transferFunction(double x);
     static double transferFunctionDerivative(double x);
     static double randomWeight(void){return rand()/double(RAND_MAX);}
@@ -39,13 +40,20 @@ private:
     double m_gradient;
 };
 
+
+
 double Neuron::eta = 0.15;
 double Neuron::alpha = 0.5;
 
-double Neuron::getResults()
+Neuron::Neuron(unsigned int numOutputs)
 {
-
+    for(unsigned c = 0; c < numOutputs; ++c)
+    {
+        m_outputWeights.push_back(Connection());
+        m_outputWeights.back().weight = randomWeight();
+    }
 }
+
 
 double Neuron::sumDOW(const Layer &nextLayer) const
 {
@@ -67,7 +75,7 @@ void Neuron::updateInputWeights(Layer &prevLayer)
         Neuron &neuron = prevLayer[n];
         double oldDeltaWeights = neuron.m_outputWeights[m_myIndex].deltaWeight;
 
-        double newDeltaWeights =  eta * neuron_getOutputVals * m_gradient + alpha * oldDeltaWeights;
+        double newDeltaWeights =  eta * neuron.getOutputVal() * m_gradient + alpha * oldDeltaWeights;
         neuron.m_outputWeights[m_myIndex].deltaWeight = newDeltaWeights;
         neuron.m_outputWeights[m_myIndex].weight += newDeltaWeights;
     }
@@ -76,7 +84,7 @@ void Neuron::updateInputWeights(Layer &prevLayer)
 double Neuron::transferFunction(double x)
 {
     //tanh with output range of -1 to 1
-    return(tanh(x))
+    return(tanh(x));
     
 }
 
@@ -91,16 +99,9 @@ double Neuron::transferFunctionDerivative(double x)
     return(1 - x * x);
 }
 
-Neuron::Neuron(unsigned int numOutputs)
-{
-    for(unsigned c = 0; c < numOutputs; ++c)
-    {
-        m_outputWeights.push_back(Connection());
-        m_outputWeights.back().weight = randomWeight();
-    }
-}
 
-void Neuron::feedForward(const int &prevLayer)
+
+void Neuron::feedForward(const Layer &prevLayer)
 {
     double sum=0.0;
     for (unsigned n = 0; n < prevLayer.size(); ++n)
@@ -111,18 +112,20 @@ void Neuron::feedForward(const int &prevLayer)
     m_outputVal = Neuron::transferFunction(sum);
 }
 
-//***************************************Class Net***********************************************
+//*************************************** Class Net ***********************************************
 
  class Net{
  public:
     Net(const std::vector<unsigned> &topology);
-    void feedForward(const std::vector<double> &inputVals){};
-    void backProp(const std::vector<double> &targetVals){};
-    void getResults(const std::vector<double> &resultVals) const {};
+    void feedForward(const std::vector<double> &inputVals);
+    void backProp(const std::vector<double> &targetVals);
+    void getResults(std::vector<double> &resultVals) const;
 
  private:
     std::vector<Layer> m_layers;
     double m_error;
+    double m_recentAverageError;
+    double m_recentAverageSmoothingFactor;
  };
 
 Net::Net(const std::vector<unsigned> &topology)
@@ -131,18 +134,30 @@ Net::Net(const std::vector<unsigned> &topology)
     for(unsigned layerNum = 0; layerNum < numLayer; ++layerNum)
     {
         m_layers.push_back(Layer());
+        unsigned numOutputs =  layerNum == topology.size() - 1 ? 0 : topology[layerNum + 1];
         for(unsigned neuronNum = 0; neuronNum <= topology[layerNum]; ++neuronNum)
         {
-            unsigned numOutputs =  layerNum == topology.size() - 1 ? 0 : topology[layerNum + 1];
             m_layers.back().push_back(Neuron(numOutputs));
             std::cout<<"Neuron added.\n";
         }
+        m_layers.back().back().setOutputVal(1.0);
     }
 }
 
+
+void Net::getResults(std::vector<double> &resultVals) const
+{
+    resultVals.clear();
+
+    for(unsigned n = 0; n < m_layers.back().size(); ++n){
+        resultVals.push_back(m_layers.back()[n].getOutputVal());
+    }
+}
+
+
 void Net::feedForward(const std::vector<double> &inputVals)
 {
-    assert(inputVals.size() == m_layers.size()-1);
+    assert(inputVals.size() == m_layers[0].size() - 1);
 
     //Assigning input vals to input neurons
     for(unsigned i = 0; i < inputVals.size(); ++i){
@@ -155,7 +170,7 @@ void Net::feedForward(const std::vector<double> &inputVals)
         Layer &prevLayer = m_layers[layerNum-1];
         for(unsigned n = 0; n < m_layers[layerNum].size(); ++n)
         {
-        m_layers[layerNum][n].feedforward(prevLayer);
+        m_layers[layerNum][n].feedForward(prevLayer);
         
         }
     }
@@ -186,14 +201,14 @@ void Net::backProp(const std::vector<double> &targetVals)
     }
 
     //calculate hidden layer gradient
-    for(unsigned layerNum = n_layer.size() - 2;layerNum > 0; --layerNum)
+    for(unsigned layerNum = m_layers.size() - 2;layerNum > 0; --layerNum)
     {
         Layer &hiddenLayer = m_layers[layerNum];
         Layer &nextLayer = m_layers[layerNum + 1];
 
-        for(unsigned n = 0; n < hiddenLayer; ++n)
+        for(unsigned n = 0; n < hiddenLayer.size(); ++n)
         {
-            hiddenLayer[n].calculateHiddenLayerGradients(nextLayer);
+            hiddenLayer[n].calculateHiddenGradients(nextLayer);
         }
     }
 
@@ -206,8 +221,6 @@ void Net::backProp(const std::vector<double> &targetVals)
           layer[n].updateInputWeights(prevLayer);
       }
     }
-
-
 }
  int main() {
 
@@ -218,7 +231,12 @@ void Net::backProp(const std::vector<double> &targetVals)
 
     Net myNet(topology);
 
+
+
     std::vector<double> inputVals;
+    inputVals.push_back(1);
+    inputVals.push_back(0);
+    inputVals.push_back(2);
     myNet.feedForward(inputVals);
 
     std::vector<double> targetVals;
